@@ -251,6 +251,7 @@ public:
     string yolo_onnx;
     Size yolo_size = {640, 640};
     bool scaled = false;
+    int cam = -1;
 
     bool parse(int argc, char *argv[])
     {
@@ -277,6 +278,9 @@ public:
             if(arg == "-scaled"){
                 scaled = 1;
             }
+            if(arg == "-cam"){
+                cam = stoi(argv[++i]);
+            }
         }
         return !yolo_size.empty() && (!yolo_onnx.empty() || is_darknet());
     }
@@ -285,6 +289,9 @@ public:
     }
     bool is_onnx() const{
         return !yolo_onnx.empty();
+    }
+    bool is_cam() const{
+        return cam >= 0;
     }
 };
 
@@ -298,23 +305,37 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    unique_ptr<cv::VideoCapture> cap;
+
     OnnxModel model;
     bool div = args.scaled;
     if(args.is_darknet()){
         if(!model.load(args.yolo_cfg, args.yolo_weight, args.yolo_size)){
             cout << "model not loaded\n";
-            return 1;
+            return 2;
         }
     }else if(args.is_onnx()){
         if(!model.load(args.yolo_onnx, args.yolo_size)){
             cout << "model not loaded\n";
-            return 1;
+            return 3;
         }
     }else{
-        cout << "wrong arguments\n";
+        cout << "wrong arguments. model not set\n";
     }
 
-    AVDecoderVideo cap(args.url);
+    if(args.is_cam()){
+        cap.reset(new cv::VideoCapture(args.cam));
+    }else if(!args.url.empty()){
+        cap.reset(new AVDecoderVideo(args.url));
+    }else{
+        cout << "wrong arguments. url or cam is empty\n";
+        return 4;
+    }
+
+    if(!cap->isOpened()){
+        cout << "url or cam is not open\n";
+        return 5;
+    }
 
     cv::namedWindow("output", cv::WINDOW_FREERATIO | cv::WINDOW_NORMAL);
 
@@ -323,7 +344,7 @@ int main(int argc, char *argv[])
     float fps = 0;
 
     cv::Mat templ;
-    while(cap.read(templ)){
+    while(cap->read(templ)){
 
         auto out = model.forward(templ, 0.2, div);
         float w = templ.cols;
